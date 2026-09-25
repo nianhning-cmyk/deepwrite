@@ -3,7 +3,7 @@
 ## 全仓格式基线
 
 - 项目已首次建立全仓格式基线；`.editorconfig`、`prettier.config.mjs` 和 `eslint.config.js` 是统一格式与静态检查规则的唯一来源，后续新增及修改的适用文件必须遵守，未经明确讨论不得绕过、弱化或另建冲突规则。
-- 格式化统一使用根目录脚本：`pnpm format` 用于写入格式，`pnpm format:check` 用于只读检查；ESLint 分别使用 `pnpm lint:eslint`、`pnpm lint:fix`，边界检查使用 `pnpm lint:boundary`。
+- 格式化统一使用根目录脚本：`pnpm format` 用于写入格式，`pnpm format:check` 用于只读检查；ESLint 分别使用 `pnpm lint:eslint`、`pnpm lint:fix`，边界检查使用 `pnpm lint:boundary`，体量检查使用 `pnpm lint:budget`。
 - 提交前必须从仓库根目录运行 `pnpm verify`，确保格式检查、类型检查、ESLint、边界检查、测试和构建全部通过；CI 同样以 `pnpm verify` 为准。
 - 日常改动只格式化任务范围内的文件，不得把无关文件的大面积格式变化混入功能修改；若确需调整全仓格式规则或重新建立基线，应单独说明影响范围并集中处理。
 
@@ -33,7 +33,7 @@ deepwrite/
 ```
 
 - DeepWrite 采用 Electron 多进程架构，职责不可混用：Renderer 只负责界面与会话编排；Preload 只做 `window.deepwrite` 白名单与双向 Zod 校验；Main 管理窗口、密钥、配置存储，并通过 `UtilitySupervisor` 监管 Utility；Core Utility 是本地项目与路径注册表的唯一写入者；Agent Utility 运行模型与智能体；Tool Utility 只提供受控工具执行边界。跨进程通信走 `@deepwrite/contracts` 中的 Envelope 命令/事件，不得另开未校验通道。
-- 进程依赖单向、收口明确。Renderer 只能从 `@deepwrite/contracts/renderer` 取运行时值，禁止引入 `electron`、`node:`、Pi SDK 或 `@deepwrite/pi-runtime-adapter`；该边界由 `pnpm lint:boundary` 强制检查。模型密钥与 Provider 凭据只存在于 Main / Agent，不得下发到 Renderer。Agent 需要读本地作品时，只能经 Main 授权的内部命令桥访问 Core 的只查询令（当前限于长篇 `long.getWorkspaceIndex` / `long.readDocument` / `long.search`），不得让 Agent 直接写盘。
+- 进程依赖单向、收口明确。Renderer 只能从 `@deepwrite/contracts/renderer` 取运行时值，禁止引入 `electron`、`node:`、Pi SDK 或 `@deepwrite/pi-runtime-adapter`；该边界由 `pnpm lint:boundary` 强制检查，检查基于 TypeScript AST 而不是文本匹配：静态导入、再导出、`import =`、动态 `import()` 与 `require()` 都会被识别，注释和字符串字面量不会被误报；Node 内置模块连同 `node:` 前缀和 `fs/promises` 一类子路径都在禁止范围内，`import type` 因编译后被擦除而放行。渲染层源码不得用相对路径导入 renderer 目录之外的文件（必须经 `@deepwrite/contracts` / `@deepwrite/shared`），该相对越界同样会被拦截。模型密钥与 Provider 凭据只存在于 Main / Agent，不得下发到 Renderer。Agent 需要读本地作品时，只能经 Main 授权的内部命令桥访问 Core 的只查询令（当前限于长篇 `long.getWorkspaceIndex` / `long.readDocument` / `long.search`），不得让 Agent 直接写盘。
 - `packages/contracts` 是协议与领域模型的唯一来源。新增命令、事件、清单字段或 Preload API 时，先改契约与对应 Schema，再改 Preload、Main 路由和 Utility 实现；Renderer 新增从 `@deepwrite/contracts` 导入的运行时值，必须同步导出到 `packages/contracts/src/renderer.ts`。`packages/shared` 只放 `createId` 一类无业务语义的工具，不得把领域逻辑塞进去。Pi / 工具 schema / 子智能体运行时留在 `packages/pi-runtime-adapter`；桌面进程编排留在 `apps/desktop`。
 - 本地作品以文件夹为单位，清单文件固定为 `deepwrite.json`，正文与设定使用 UTF-8 Markdown。短篇/剧本/素材库/技能库走 `folder-catalog-store`；长篇走 `long-project-store` 与 `long-workspace-service`。Core 必须原子写入，智能体对文稿的修改先以 proposal 事件展示差异，用户接受后才由 Core 落盘；不得让 Agent 或 Renderer 静默覆盖较新版本。
 - Renderer 以 `WorkspaceShell.vue` 为工作台壳：默认三栏写作面留在入口 chunk，设置、长篇、市场、云备份等用 `lazyAppComponents` 按需加载。界面状态放 `stores/`，跨组件编排放 `composables/`，领域页面可放 `features/` 或 `extras/`。主进程可选能力（如云备份）放 `apps/desktop/src/extras/`，对应界面放 `renderer/src/extras/`，由 Main 注册专用 IPC，并复用同一套 contracts。新增功能先扩现有 coordinator / store / Utility handler；只有新的可选能力才新增 extras，不得把业务写入逻辑放进组件或 Preload。
@@ -48,6 +48,7 @@ deepwrite/
 - 新逻辑优先落入现有分层：界面状态放 `stores/`，跨组件编排放 `composables/`，领域页面放 `features/` 或 `extras/`，业务写入走 coordinator / Utility handler。不得把可复用逻辑继续塞进已偏大的 `App.vue`、`WorkspaceShell.vue`、巨型 store 或 Preload。
 - 模块之间只通过明确的公共接口协作，禁止循环依赖，禁止互相直读内部状态或私有实现。共享代码只放真正跨领域且无业务语义的工具，或已由 `@deepwrite/contracts` 定义的协议；不得为了图省事抽出过宽的“万能工具”或让无关领域互相引用。
 - 修改已超限的文件时，本次改动必须顺带把触及的职责拆出去，而不是在超大文件上继续打补丁。拆出的新文件同样遵守上述体量与分层约束。
+- 体量由 `pnpm lint:budget` 强制，并已接入 `pnpm verify`。脚本按两档判定：未列入 `tools/check-source-line-budget.mjs` 中 `FROZEN_LEGACY_BUDGETS` 的文件，一律按上面的 400 / 500 / 600 行预算；已列入的存量超限文件冻结在登记时的行数，只能缩小、不能变大。缩小后必须同步下调登记数字，避免腾出的空间被重新占用；文件被拆分、改名或删除时，必须一并删除对应登记项，否则检查失败。新增可能超限的文件需要登记豁免的，必须在同一改动内说明无法拆分的理由，不得只改数字。
 
 ## 重要：测试代码敏感信息保护
 

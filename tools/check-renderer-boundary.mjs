@@ -1,20 +1,45 @@
+import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join, relative, resolve } from "node:path";
+import {
+  collectModuleReferences,
+  collectValueExportNamesDeep,
+  extractScriptBlocks,
+  isForbiddenRuntimeSpecifier,
+  parseSource,
+  resolvesOutsideRenderer
+} from "./renderer-boundary-analysis.mjs";
 
-const root = resolve("apps/desktop/src/renderer");
-const rendererContracts = resolve("packages/contracts/src/renderer.ts");
+/**
+ * Enforces the Renderer process boundary.
+ *
+ * 1. Renderer sources may not evaluate Node builtins (bare, `node:`-prefixed, or
+ *    subpaths such as `fs/promises`), Electron, SQLite, `conversation-storage`, or
+ *    the Pi agent runtime. Type-only imports are allowed: the compiler erases them.
+ * 2. Relative imports may not resolve outside `apps/desktop/src/renderer`; reaching
+ *    into Main/Utility code that way skips the alias that keeps the Renderer on the
+ *    renderer-safe contract surface.
+ * 3. A runtime value imported from `@deepwrite/contracts` must be exported by
+ *    `packages/contracts/src/renderer.ts`, which is what the Renderer build aliases
+ *    that specifier to. A missing export fails WorkspaceShell module load and shows
+ *    a blank window.
+ *
+ * Imports are read from the TypeScript AST, so comments and string literals that
+ * merely look like imports are not reported.
+ */
+
+const repoRoot = resolve(import.meta.dirname, "..");
+const rendererRoot = resolve(repoRoot, "apps/desktop/src/renderer");
+const contractsRendererFile = resolve(
+  repoRoot,
+  "packages/contracts/src/renderer.ts"
+);
 const allowedExtensions = new Set([".ts", ".vue"]);
-const forbiddenImports = [
-  /^electron$/,
-  /^node:/,
-  /^(fs|path|os|child_process|worker_threads|net|tls|http|https)$/,
-  /^better-sqlite3$/,
-  /^sqlite3(?:\/|$)/,
-  /conversation-storage(?:\/|$)/,
-  /pi-agent-core/,
-  /pi-ai/,
-  /pi-runtime-adapter/
-];
+const contractModuleExtensions = [".ts", ".d.ts", "/index.ts"];
+
+function isTestFile(relPath) {
+  return relPath.includes(".test.");
+}
 
 async function collectFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -30,91 +55,87 @@ async function collectFiles(directory) {
   return files;
 }
 
-function stripComments(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
-}
+const moduleSourceCache = new Map();
 
-function splitImportedNames(body) {
-  return body
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map((part) => {
-      const typeOnly = /^type\s+/.test(part);
-      const name = part
-        .replace(/^type\s+/, "")
-        .split(/\s+as\s+/)[0]
-        .trim();
-      return { name, typeOnly };
-    })
-    .filter((item) => item.name);
-}
-
-function collectValueExports(source) {
-  const names = new Set();
-  const text = stripComments(source);
-  const pattern =
-    /export\s+(?!type\b)(?:\{([\s\S]*?)\}|(?:async\s+)?function\s+(\w+)|const\s+(\w+)|class\s+(\w+)|enum\s+(\w+))/g;
-  for (const match of text.matchAll(pattern)) {
-    if (match[1]) {
-      for (const item of splitImportedNames(match[1])) {
-        if (!item.typeOnly) names.add(item.name);
-      }
-      continue;
-    }
-    for (const name of match.slice(2)) {
-      if (name) names.add(name);
-    }
+function readContractModule(fileName) {
+  if (moduleSourceCache.has(fileName)) return moduleSourceCache.get(fileName);
+  let source = null;
+  try {
+    source = readFileSync(fileName, "utf8");
+  } catch {
+    // A specifier that does not resolve contributes no exports; the caller
+    // reports the unresolved module itself.
   }
-  return names;
+  moduleSourceCache.set(fileName, source);
+  return source;
 }
 
-function collectValueImports(source, specifier) {
-  const names = [];
-  const text = stripComments(source);
-  const pattern =
-    /import\s+(type\s+)?(?:\{([\s\S]*?)\}|\*\s+as\s+\w+)\s+from\s+["']([^"']+)["']/g;
-  for (const match of text.matchAll(pattern)) {
-    if (match[3] !== specifier || match[1] || !match[2]) continue;
-    for (const item of splitImportedNames(match[2])) {
-      if (!item.typeOnly) names.push(item.name);
-    }
+function resolveContractModule(specifier, fromFileName) {
+  if (!specifier.startsWith(".")) return null;
+  const base = resolve(fromFileName, "..", specifier);
+  for (const extension of contractModuleExtensions) {
+    const candidate = `${base}${extension}`;
+    if (readContractModule(candidate) !== null) return candidate;
   }
-  return names;
+  return null;
 }
 
-const files = await collectFiles(root);
-const violations = [];
-for (const file of files) {
-  const source = await readFile(file, "utf8");
-  const importPattern = /(?:from\s+|import\s*\()\s*["']([^"']+)["']/g;
-  for (const match of source.matchAll(importPattern)) {
-    const specifier = match[1];
-    if (
-      specifier &&
-      forbiddenImports.some((pattern) => pattern.test(specifier))
-    ) {
-      violations.push(
-        `${relative(process.cwd(), file)} imports forbidden renderer module ${specifier}`
-      );
-    }
-  }
+function scriptBlocksOf(file, source) {
+  if (extname(file) !== ".vue") return [{ text: source, lineOffset: 0 }];
+  return extractScriptBlocks(source);
 }
 
-const rendererExports = collectValueExports(
-  await readFile(rendererContracts, "utf8")
+const rendererExports = collectValueExportNamesDeep(
+  parseSource(readFileSync(contractsRendererFile, "utf8"), {
+    fileName: contractsRendererFile
+  }),
+  { readModule: readContractModule, resolveModule: resolveContractModule }
 );
+
+const files = await collectFiles(rendererRoot);
+const violations = [];
 const missingContractExports = new Map();
+
 for (const file of files) {
-  if (file.includes(".test.")) continue;
+  const relPath = relative(repoRoot, file);
+  const isTest = isTestFile(relPath);
   const source = await readFile(file, "utf8");
-  for (const name of collectValueImports(source, "@deepwrite/contracts")) {
-    if (rendererExports.has(name)) continue;
-    const list = missingContractExports.get(name) ?? [];
-    list.push(relative(process.cwd(), file));
-    missingContractExports.set(name, list);
+
+  for (const block of scriptBlocksOf(file, source)) {
+    const sourceFile = parseSource(block.text, { fileName: file });
+    for (const reference of collectModuleReferences(sourceFile, {
+      lineOffset: block.lineOffset
+    })) {
+      const location = `${relPath}:${reference.line}`;
+
+      if (
+        !reference.typeOnly &&
+        isForbiddenRuntimeSpecifier(reference.specifier)
+      ) {
+        violations.push(
+          `${location} imports forbidden renderer module ${reference.specifier}`
+        );
+      }
+
+      if (
+        !isTest &&
+        reference.specifier.startsWith(".") &&
+        resolvesOutsideRenderer(file, reference.specifier, rendererRoot)
+      ) {
+        violations.push(
+          `${location} imports ${reference.specifier}, which resolves outside the Renderer tree. Renderer code may only import from its own directory, @deepwrite/contracts, or @deepwrite/shared.`
+        );
+      }
+
+      if (isTest || reference.typeOnly) continue;
+      if (reference.specifier !== "@deepwrite/contracts") continue;
+      for (const name of reference.valueNames) {
+        if (name === "*" || rendererExports.has(name)) continue;
+        const list = missingContractExports.get(name) ?? [];
+        list.push(location);
+        missingContractExports.set(name, list);
+      }
+    }
   }
 }
 
@@ -130,5 +151,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  "Renderer boundary check passed: no Node, Electron, SQLite, or Pi runtime imports, and contracts renderer exports cover Renderer value imports."
+  "Renderer boundary check passed: no Node, Electron, SQLite, or Pi runtime imports (including subpaths and dynamic imports), no imports escaping the Renderer tree, and contracts renderer exports cover Renderer value imports."
 );
