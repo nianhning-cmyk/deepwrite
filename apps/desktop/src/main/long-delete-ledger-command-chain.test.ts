@@ -11,7 +11,7 @@ const contractSource = source(
 const preloadSource = source("../preload/long-document-api.ts");
 const coreSource = source("../utilities/long-core-commands.ts");
 const serviceSource = source("../utilities/long-workspace-service.ts");
-const mainSource = source("./ipc/long-workspace-commands.ts");
+const mainSource = source("./index.ts");
 
 describe("long.deleteLedgerCommit command chain", () => {
   it("keeps the command and result schema-validated across every process boundary", () => {

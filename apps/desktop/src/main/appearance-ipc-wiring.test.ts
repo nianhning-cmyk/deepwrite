@@ -6,9 +6,8 @@ function source(relativeUrl: string): string {
 }
 
 describe("appearance IPC wiring", () => {
-  it("routes both main dispatch paths through the shared appearance handler", () => {
+  it("routes the main dispatch path through the shared appearance handler", () => {
     const mainSource = source("./index.ts");
-    const modularSource = source("./ipc/settings-commands.ts");
 
     expect(mainSource).toContain("handleAppearanceCommands(");
     expect(mainSource).toContain("requireAppearanceService");
@@ -17,10 +16,6 @@ describe("appearance IPC wiring", () => {
       "installAppearanceFontProtocolHandler(appearanceService);"
     );
     expect(mainSource).not.toContain('if (command.type === "appearance.list")');
-    expect(modularSource).toContain("handleAppearanceCommands(ctx, command)");
-    expect(modularSource).not.toContain(
-      'if (command.type === "appearance.list")'
-    );
   });
 
   it("uses one preload appearance API from both entry points", () => {

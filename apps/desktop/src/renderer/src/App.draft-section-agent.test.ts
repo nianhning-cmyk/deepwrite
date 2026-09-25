@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
 import source from "./WorkspaceShell.vue?raw";
-import applyReviewSource from "./composables/proposal-coordinator/apply-review.ts?raw";
-import draftSectionLaneSource from "./composables/proposal-coordinator/draft-section-lane.ts?raw";
-import provisionalSource from "./composables/proposal-coordinator/provisional.ts?raw";
 import queueSource from "./composables/proposal-coordinator/queue.ts?raw";
 import proposalCoordinatorSource from "./composables/useProposalCoordinator.ts?raw";
 import structureSource from "./composables/useShortWorkspaceStructureCoordinator.ts?raw";
@@ -28,13 +25,12 @@ describe("App agent chapter-file creation", () => {
   });
 
   it("stages structural proposals and directly persists their chapters", () => {
-    const coordinatorSource = [
-      draftSectionLaneSource,
-      provisionalSource,
-      applyReviewSource,
-      queueSource,
-      proposalCoordinatorSource
-    ].join("\n");
+    // Assertions below intentionally cover only the modules that are reachable
+    // from the workspace shell. Concatenating unimported copies would let a
+    // stale duplicate satisfy them.
+    const coordinatorSource = [queueSource, proposalCoordinatorSource].join(
+      "\n"
+    );
     expect(coordinatorSource).toContain(
       'mutationTarget?.kind === "expert-draft-section-creation"'
     );
@@ -86,15 +82,12 @@ describe("App agent chapter-file creation", () => {
     expect(coordinatorSource).toContain("resolveProvisionalWriteStagingMode(");
     expect(coordinatorSource).toContain('stagingMode === "mapped-real"');
     expect(coordinatorSource).toContain("resolveAgentEditProposalGeneration(");
-    expect(draftSectionLaneSource).toContain(
-      'directory?.workspaceType === "script" || book?.bookType === "script"'
-    );
     expect(proposalCoordinatorSource).toContain(
       'directory?.workspaceType === "script" || book?.bookType === "script"'
     );
-    expect(draftSectionLaneSource).toContain(
+    expect(proposalCoordinatorSource).toContain(
       "title: `删除${draftUnit}：${mutationTarget.title}`"
     );
-    expect(draftSectionLaneSource).toContain("及其正文与人物状态文件");
+    expect(proposalCoordinatorSource).toContain("及其正文与人物状态文件");
   });
 });
