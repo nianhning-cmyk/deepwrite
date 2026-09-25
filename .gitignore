@@ -4,6 +4,7 @@ out/
 release/
 dist/
 coverage/
+.codegraph/
 *.log
 .env
 .env.*
