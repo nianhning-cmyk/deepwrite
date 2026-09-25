@@ -29,6 +29,7 @@ import {
   libraryManagementParentPrompt
 } from "./library-management-runtime";
 import { buildAskUserQuestionTool } from "./ask-user-question-tool";
+import { toRuntimeEvents } from "./event-mapping";
 import { toSubagentRuntimeEvents } from "./subagent-events";
 import type { AgentRunInput } from "./runtime-types";
 import { reconcileLibraryToolState } from "./library-management-state";
@@ -210,7 +211,8 @@ describe("built-in management subagents", () => {
               update.details.progress,
               run,
               { provider: "test", model: "test", mode: "provider" },
-              "message"
+              "message",
+              toRuntimeEvents
             )
           );
       }
@@ -259,7 +261,8 @@ describe("built-in management subagents", () => {
       },
       run,
       { provider: "test", model: "test", mode: "provider" },
-      "message"
+      "message",
+      toRuntimeEvents
     );
     expect(projected[0]).toMatchObject({
       type: "library.editor_mutation",

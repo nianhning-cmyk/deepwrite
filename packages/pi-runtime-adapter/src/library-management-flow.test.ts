@@ -18,6 +18,7 @@ import { shortProfile, shortWorkspace } from "./short-agent-tools.test-support";
 import { scriptAgentProfile, screenplayWorkspace } from "./index.test-support";
 import { profile, workspace } from "./long-agent-tools.test-support";
 import { isSubagentToolProgressDetails } from "./subagent-runtime";
+import { toRuntimeEvents } from "./event-mapping";
 import { toSubagentRuntimeEvents } from "./subagent-events";
 import type { AgentRunInput, AgentRuntimeEvent } from "./runtime-types";
 
@@ -240,7 +241,8 @@ describe("creative workspace management delegation", () => {
             event.partialResult.details.progress,
             run,
             runtime,
-            "message"
+            "message",
+            toRuntimeEvents
           )
         );
       }

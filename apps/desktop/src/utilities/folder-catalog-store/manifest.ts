@@ -55,29 +55,9 @@ import {
   type OpenFolderCatalogProjectResult
 } from "./types";
 import { initializeWritingContextFile } from "./writing-context";
+import { manifestContentItems } from "./content-items";
 
-export function manifestContentItems(
-  manifest: FolderCatalogProjectManifest
-): Array<{ id: string; path: string }> {
-  if (manifest.kind === "deepwrite.book") {
-    return manifest.schemaVersion !== 1
-      ? [
-          ...manifest.documents,
-          ...manifest.draft.sections.flatMap((section) => [
-            section.body,
-            section.characterState
-          ])
-        ]
-      : [...manifest.documents];
-  }
-  if (
-    manifest.kind === "deepwrite.material-library" ||
-    manifest.kind === "deepwrite.skill-library"
-  ) {
-    return [...manifest.entries];
-  }
-  return [];
-}
+export { manifestContentItems } from "./content-items";
 
 export function assertManifestUniqueness(
   manifest: FolderCatalogProjectManifest

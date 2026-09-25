@@ -8,6 +8,7 @@ import {
   mergeCreativePlotStageDefinitions,
   sameCreativePlotStageDefinitions
 } from "./folder-catalog-store/plot-stage-definitions";
+import { manifestContentItems } from "./folder-catalog-store/content-items";
 import { createCatalogId, randomHex8 } from "@deepwrite/shared";
 import { createHash } from "node:crypto";
 import {
@@ -5484,29 +5485,6 @@ function registryProjectKey(
   id: string
 ): string {
   return `${domain}\u0000${id}`;
-}
-
-function manifestContentItems(
-  manifest: FolderCatalogProjectManifest
-): Array<{ id: string; path: string }> {
-  if (manifest.kind === "deepwrite.book") {
-    return manifest.schemaVersion !== 1
-      ? [
-          ...manifest.documents,
-          ...manifest.draft.sections.flatMap((section) => [
-            section.body,
-            section.characterState
-          ])
-        ]
-      : [...manifest.documents];
-  }
-  if (
-    manifest.kind === "deepwrite.material-library" ||
-    manifest.kind === "deepwrite.skill-library"
-  ) {
-    return [...manifest.entries];
-  }
-  return [];
 }
 
 function assertManifestUniqueness(

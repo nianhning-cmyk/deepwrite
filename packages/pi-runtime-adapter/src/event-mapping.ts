@@ -169,7 +169,8 @@ export function toRuntimeEvents(
         details.progress,
         input,
         runtime,
-        messageId
+        messageId,
+        toRuntimeEvents
       );
     }
     return [];

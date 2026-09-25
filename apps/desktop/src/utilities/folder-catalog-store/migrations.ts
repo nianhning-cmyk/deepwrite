@@ -9,7 +9,7 @@ import {
   type V2BookProjectManifest,
   type V3BookProjectManifest
 } from "@deepwrite/contracts";
-import { manifestContentItems } from "./manifest";
+import { manifestContentItems } from "./content-items";
 import {
   assertJsonByteLength,
   assertTextByteLength,

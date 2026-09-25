@@ -1,14 +1,29 @@
 import type { AgentRuntimeRef } from "@deepwrite/contracts";
-import { toRuntimeEvents } from "./event-mapping";
+import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AgentRunInput, AgentRuntimeEvent } from "./runtime-types";
 import type { SubagentToolProgress } from "./subagent-runtime";
+
+/**
+ * Maps an event that happened inside a child run onto parent-run runtime events.
+ *
+ * `toRuntimeEvents` and this module project each other's output, so the caller
+ * passes the parent mapper in instead of importing it: a direct import would make
+ * `event-mapping` and `subagent-events` a runtime cycle.
+ */
+export type ParentRuntimeEventMapper = (
+  event: AgentEvent,
+  input: AgentRunInput,
+  runtime: AgentRuntimeRef,
+  messageId: string
+) => AgentRuntimeEvent[];
 
 /** @internal Exported for subagent protocol regression tests. */
 export function toSubagentRuntimeEvents(
   progress: SubagentToolProgress,
   input: AgentRunInput,
   runtime: AgentRuntimeRef,
-  messageId: string
+  messageId: string,
+  toParentRuntimeEvents: ParentRuntimeEventMapper
 ): AgentRuntimeEvent[] {
   const progressRuntime = progress.runtime ?? runtime;
   const base = {
@@ -86,7 +101,7 @@ export function toSubagentRuntimeEvents(
   // Child workspace mutations remain ordinary parent-run workspace events so
   // the existing review/approval chain can process them. Only their tool-call
   // id is namespaced to the ephemeral child run.
-  return toRuntimeEvents(
+  return toParentRuntimeEvents(
     {
       type: "tool_execution_end",
       toolCallId: progress.toolCallId,
