@@ -28,6 +28,13 @@ export default defineConfig({
       "apps/desktop/src/extras/**/*.test.ts",
       "apps/desktop/src/renderer/**/*.test.ts"
     ],
-    environment: "node"
+    environment: "node",
+    // The persistence suites commit real project transactions (locks, fsync,
+    // rename) against temporary directories. Under the default 5s budget they
+    // time out intermittently when many files run in parallel, and the failing
+    // file differs run to run. These limits only affect tests that would
+    // otherwise hang; they do not make a failing assertion pass.
+    testTimeout: 30000,
+    hookTimeout: 30000
   }
 });
